@@ -41,14 +41,20 @@ def draw_region(frame: np.ndarray, region: dict[str,int] | None):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Screen preview & ROI selection")
-    parser.add_argument('--monitor', type=int, default=1, help='MSS monitor index')
+    parser = argparse.ArgumentParser(description="Screen preview & ROI selection (continuous)")
+    parser.add_argument('--monitor', type=int, default=1, help='MSS monitor index (list printed at start)')
     parser.add_argument('--fps', type=float, default=20.0)
     parser.add_argument('--max-width', type=int, default=1200, help='Resize display width')
+    parser.add_argument('--freeze-select', action='store_true', help='Freeze current frame before ROI selection to avoid mirror effect')
     args = parser.parse_args()
 
     sct = mss()
     monitors = sct.monitors
+    logger.info('Available monitors:')
+    for idx, m in enumerate(monitors):
+        if idx == 0:
+            continue  # mss placeholder
+        logger.info(f"  {idx}: left={m['left']} top={m['top']} width={m['width']} height={m['height']}")
     if args.monitor >= len(monitors):
         logger.error(f"Monitor index {args.monitor} out of range (have {len(monitors)-1} monitors excluding index 0 placeholder)")
         return 1
@@ -92,15 +98,18 @@ def main():
             cv2.imwrite('capture_sample.jpg', frame)
             logger.info('Saved capture_sample.jpg')
         elif key == ord('r'):
-            # Select ROI on the displayed (possibly resized) frame -> map back to original coordinates
-            temp = frame.copy()
+            # Optionally freeze frame to avoid mirror recursion and window overlap
+            temp = frame.copy() if args.freeze-select else frame
             disp = temp
             if w > args.max_width:
                 disp = cv2.resize(temp, (args.max_width, int(h * args.max_width / w)))
-            clone = disp.copy()
-            r = cv2.selectROI('Screen Preview', clone, fromCenter=False, showCrosshair=True)
+            # Use a distinct window name for ROI to reduce self-capture confusion
+            roi_window = 'ROI_SELECT'
+            cv2.namedWindow(roi_window, cv2.WINDOW_NORMAL)
+            cv2.imshow(roi_window, disp)
+            r = cv2.selectROI(roi_window, disp, fromCenter=False, showCrosshair=True)
+            cv2.destroyWindow(roi_window)
             if r and r[2] > 0 and r[3] > 0:
-                # Map back
                 scale = w / disp.shape[1]
                 x, y, rw, rh = r
                 x = int(x * scale)
