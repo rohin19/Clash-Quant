@@ -7,7 +7,7 @@ env:
 on:
   push:
     branches:
-      - all
+      - main
 
 jobs:
 
