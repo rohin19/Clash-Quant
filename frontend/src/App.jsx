@@ -9,7 +9,7 @@ function App() {
     <div className="App">
       <div>
         <a href="https://reactjs.org" target="_blank">
-          <img src={ClashRoyale} className="clash logo" alt="clash logo" />
+          <img src={ClashRoyale} className="clash logo" alt="clas logo" />
         </a>
       </div>
       <h1>Clash Quant</h1>
