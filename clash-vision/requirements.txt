@@ -7,3 +7,4 @@ mss
 rich
 typer
 Pillow
+requests

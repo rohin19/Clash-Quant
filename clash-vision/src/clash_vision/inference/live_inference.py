@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 import time
+from pathlib import Path
 from ultralytics import YOLO
 import numpy as np
 import cv2
@@ -21,12 +23,28 @@ def main():
     model = YOLO(args.weights)
     sct = mss()
     monitor = sct.monitors[args.monitor]
+    
+    # Check for region in order of priority: command line -> JSON file -> full monitor
     if args.region:
         left, top, w, h = args.region
         capture_region = {"left": left, "top": top, "width": w, "height": h}
+        logger.info("Using region from command line arguments")
     else:
-        # default: full monitor
-        capture_region = {"left": monitor["left"], "top": monitor["top"], "width": monitor["width"], "height": monitor["height"]}
+        # Try to load from capture_region.json (created by screen_preview.py)
+        region_file = Path('capture_region.json')
+        if region_file.exists():
+            try:
+                with open(region_file, 'r') as f:
+                    capture_region = json.load(f)
+                logger.info("Using region from capture_region.json (iPhone QuickTime capture)")
+            except Exception as e:
+                logger.error(f"Failed to load capture_region.json: {e}")
+                capture_region = {"left": monitor["left"], "top": monitor["top"], "width": monitor["width"], "height": monitor["height"]}
+                logger.info("Falling back to full monitor")
+        else:
+            # default: full monitor
+            capture_region = {"left": monitor["left"], "top": monitor["top"], "width": monitor["width"], "height": monitor["height"]}
+            logger.info("No region file found, using full monitor. Use screen_preview.py to select iPhone region first.")
 
     logger.info(f"Capture region: {capture_region}")
     delay = 1.0 / args.fps
