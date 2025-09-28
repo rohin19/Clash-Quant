@@ -95,7 +95,6 @@ const sampleGameState = {
 //   "deck": [...],
 //   "current_hand": [...]
 // }
-import { useEffect } from "react";
 const API_URL = "http://localhost:5000/api/game_state"; // Change to your backend endpoint
 
 function App() {

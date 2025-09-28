@@ -68,12 +68,12 @@ class AsyncInferenceManager:
             self.worker_thread.join(timeout=1.0)
             
     def submit_frame(self, frame):
-        """Submit a frame for inference with aggressive queue clearing."""
+        #Submit a frame for inference, clearing the queue if it
         current_time = time.time()
         
         # Check if enough time has passed since last API call
         if current_time - self.last_api_call < self.api_interval:
-            return False  # Frame skipped due to throttling
+            return False
             
         # AGGRESSIVE: Empty entire queue first to prevent backup
         while not self.frame_queue.empty():
@@ -83,24 +83,20 @@ class AsyncInferenceManager:
                 break
                 
         try:
-            # Convert BGR to RGB for Roboflow API (it expects RGB numpy arrays)
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             self.frame_queue.put((current_time, frame_rgb), block=False)
-            return True  # Frame submitted
+            return True
         except Exception as e:
             logger.warning(f"Failed to submit frame: {e}")
             return False
             
     def get_latest_results(self):
-        """Get the most recent inference results."""
         with self.results_lock:
             return self.latest_results
             
     def _worker_loop(self):
-        """Background worker loop for processing API calls."""
         while not self.should_stop:
             try:
-                # Get frame from queue (blocking with timeout)
                 timestamp, frame_rgb = self.frame_queue.get(timeout=0.1)
                 
                 # Update last API call timestamp
