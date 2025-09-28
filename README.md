@@ -1,4 +1,4 @@
-# Clash Quant - Live Clash Royale Model Detection + Analysis
+# Clash Quant - Live Model Detection + Opponent Analysis
 
 Real-time analysis system for Clash Royale gameplay using computer vision and machine learning.
 
@@ -38,6 +38,7 @@ source .venv/bin/activate # On Windows: .venv\Scripts\activate
 # 2. File > New Movie Recording > Select iPhone
 # 3. Run region selector to define capture area
 cd \Clash-Quant\clash-vision\src
+# if using multiple displays change --monitor 1 to specify which display (1,2,..)
 python -m clash_vision.inference.screen_preview --monitor 1
 # Press 'r' to select iPhone screen area
 # Drag out box to identify screen area
