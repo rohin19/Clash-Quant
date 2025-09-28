@@ -8,3 +8,6 @@ rich
 typer
 Pillow
 requests
+inference-sdk
+flask
+flask-cors
