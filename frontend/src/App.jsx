@@ -67,33 +67,8 @@ function Prediction({ prediction }) {
 	);
 }
 
-// Placeholder for fetching game state from backend API
-// Uncomment and adjust API_URL as needed
+// Sample data simulating backend response
 /*
-import { useEffect } from "react";
-
-const API_URL = "http://localhost:5000/api/game_state"; // Change to your backend endpoint
-
-function App() {
-  const [gameState, setGameState] = useState(null);
-  useEffect(() => {
-    async function fetchState() {
-      try {
-        const res = await fetch(API_URL);
-        const data = await res.json();
-        setGameState(data);
-      } catch (err) {
-        // handle error
-      }
-    }
-    fetchState();
-    const interval = setInterval(fetchState, 1000); // Poll every second
-    return () => clearInterval(interval);
-  }, []);
-  // ...render as before, using gameState instead of sampleGameState
-}
-*/
-
 const sampleGameState = {
 	visible_cards: ["Knight", "Valkyrie", "HogRider"],
 	elixir_opponent: 6,
@@ -109,9 +84,40 @@ const sampleGameState = {
 	],
 	current_hand: ["Knight", "Valkyrie", "HogRider", "MiniPekka"],
 };
+*/
+
+// Fetch game state from backend API (using gamestate/live_inference output)
+// Assumes backend endpoint returns JSON in the format:
+// {
+//   "visible_cards": [...],
+//   "elixir_opponent": ...,
+//   "next_prediction": ...,
+//   "deck": [...],
+//   "current_hand": [...]
+// }
+import { useEffect } from "react";
+const API_URL = "http://localhost:5000/api/game_state"; // Change to your backend endpoint
 
 function App() {
-	const gameState = sampleGameState;
+	const [gameState, setGameState] = useState(null);
+
+	useEffect(() => {
+		async function fetchState() {
+			try {
+				const res = await fetch(API_URL);
+				const data = await res.json();
+				setGameState(data);
+			} catch (err) {
+				// handle error, optionally set sampleGameState
+			}
+		}
+		fetchState();
+		const interval = setInterval(fetchState, 1000); // Poll every second
+		return () => clearInterval(interval);
+	}, []);
+
+	// Use gameState if available, else fallback to sampleGameState
+	const state = gameState || sampleGameState;
 
 	return (
 		<div className="App">
@@ -120,17 +126,17 @@ function App() {
 					<header className="main-title">Clash Quant</header>
 				</div>
 				<div className="top-right">
-					<ElixirBar elixir={gameState.elixir_opponent} />
+					<ElixirBar elixir={state.elixir_opponent} />
 				</div>
 			</div>
 			<div className="main-content-row">
 				<div className="left-column">
-					<CardList title="Visible Cards" cards={gameState.visible_cards} />
-					<CardList title="Current Hand" cards={gameState.current_hand} />
-					<Prediction prediction={gameState.next_prediction} />
+					<CardList title="Visible Cards" cards={state.visible_cards} />
+					<CardList title="Current Hand" cards={state.current_hand} />
+					<Prediction prediction={state.next_prediction} />
 				</div>
 				<div className="right-column">
-					<CardList title="Opponent Deck" cards={gameState.deck} />
+					<CardList title="Opponent Deck" cards={state.deck} />
 				</div>
 			</div>
 		</div>
