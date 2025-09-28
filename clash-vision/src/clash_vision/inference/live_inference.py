@@ -6,24 +6,21 @@ import time
 import threading
 from queue import Queue, Empty
 from pathlib import Path
-from inference_sdk import InferenceHTTPClient, InferenceConfiguration
+from roboflow import Roboflow
 import numpy as np
 import cv2
 from mss import mss
 from ..utils import logger
 
 class AsyncInferenceManager:
-    """Manages asynchronous API calls to Roboflow with result caching and throttling."""
+    """Manages asynchronous API calls to Roboflow with aggressive queue clearing."""
     
-    def __init__(self, client, model_id, api_interval=5.0, max_queue_size=2):
-        self.client = client
-        self.model_id = model_id
+    def __init__(self, model, api_interval=5.0):
+        self.model = model  # Roboflow model object
         self.api_interval = api_interval  # seconds between API calls
-        self.max_queue_size = max_queue_size
         
-        # Queues for managing async inference
-        self.frame_queue = Queue(maxsize=max_queue_size)
-        self.result_queue = Queue()
+        # Queues for managing async inference (small queue)
+        self.frame_queue = Queue(maxsize=1)  # Only keep 1 frame max
         
         # Latest results for display
         self.latest_results = None
@@ -35,12 +32,6 @@ class AsyncInferenceManager:
         
         # Throttling
         self.last_api_call = 0
-        self.frames_skipped = 0
-        
-        # Statistics
-        self.frames_sent = 0
-        self.frames_processed = 0
-        self.api_errors = 0
         
     def start_worker(self):
         """Start the background worker thread for API calls."""
@@ -56,26 +47,24 @@ class AsyncInferenceManager:
             self.worker_thread.join(timeout=1.0)
             
     def submit_frame(self, frame):
-        """Submit a frame for inference (non-blocking) with throttling."""
+        """Submit a frame for inference with aggressive queue clearing."""
         current_time = time.time()
         
         # Check if enough time has passed since last API call
         if current_time - self.last_api_call < self.api_interval:
-            self.frames_skipped += 1
             return False  # Frame skipped due to throttling
             
-        # Clear queue if full (keep only the most recent frame)
-        if self.frame_queue.full():
+        # AGGRESSIVE: Empty entire queue first to prevent backup
+        while not self.frame_queue.empty():
             try:
                 self.frame_queue.get_nowait()
             except Empty:
-                pass
+                break
                 
         try:
             # Convert BGR to RGB for Roboflow API (it expects RGB numpy arrays)
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             self.frame_queue.put((current_time, frame_rgb), block=False)
-            self.frames_sent += 1
             return True  # Frame submitted
         except Exception as e:
             logger.warning(f"Failed to submit frame: {e}")
@@ -96,9 +85,9 @@ class AsyncInferenceManager:
                 # Update last API call timestamp
                 self.last_api_call = timestamp
                 
-                # Make API call with numpy array (RGB format)
+                # Make API call with numpy array (RGB format) using the model object
                 try:
-                    result = self.client.infer(frame_rgb, model_id=self.model_id)
+                    result = self.model.predict(frame_rgb, confidence=40, overlap=30).json()
                     
                     # Update latest results
                     with self.results_lock:
@@ -108,12 +97,10 @@ class AsyncInferenceManager:
                             'error': None
                         }
                     
-                    self.frames_processed += 1
                     logger.info(f"API call successful. Processed frame at {timestamp:.2f}")
                     
                 except Exception as e:
                     logger.error(f"API inference failed: {e}")
-                    self.api_errors += 1
                     
                     # Update with error state
                     with self.results_lock:
@@ -132,14 +119,8 @@ class AsyncInferenceManager:
                 logger.error(f"Worker loop error: {e}")
                 
     def get_stats(self):
-        """Get inference statistics."""
+        """Get simple inference statistics."""
         return {
-            'frames_sent': self.frames_sent,
-            'frames_processed': self.frames_processed,
-            'frames_skipped': self.frames_skipped,
-            'api_errors': self.api_errors,
-            'queue_size': self.frame_queue.qsize(),
-            'success_rate': self.frames_processed / max(1, self.frames_sent),
             'api_interval': self.api_interval,
             'next_api_call': max(0, self.api_interval - (time.time() - self.last_api_call))
         }
@@ -166,7 +147,7 @@ def draw_detections(frame, predictions):
     return annotated
 
 def draw_stats_overlay(frame, stats, fps_actual):
-    """Draw performance statistics on frame."""
+    """Draw simple performance statistics on frame."""
     y_offset = 30
     font = cv2.FONT_HERSHEY_SIMPLEX
     font_scale = 0.6
@@ -174,18 +155,14 @@ def draw_stats_overlay(frame, stats, fps_actual):
     thickness = 1
     
     # Background rectangle for better text visibility
-    cv2.rectangle(frame, (10, 5), (450, 160), (0, 0, 0), -1)
-    cv2.rectangle(frame, (10, 5), (450, 160), (255, 255, 255), 1)
+    cv2.rectangle(frame, (10, 5), (320, 75), (0, 0, 0), -1)
+    cv2.rectangle(frame, (10, 5), (320, 75), (255, 255, 255), 1)
     
-    # Display stats
+    # Display simple stats
     texts = [
         f"Display FPS: {fps_actual:.1f}",
         f"API Interval: {stats['api_interval']:.1f}s",
-        f"Next API Call: {stats['next_api_call']:.1f}s",
-        f"Frames Sent: {stats['frames_sent']}",
-        f"Frames Skipped: {stats['frames_skipped']}",
-        f"Processed: {stats['frames_processed']}",
-        f"Success Rate: {stats['success_rate']:.1%}"
+        f"Next API Call: {stats['next_api_call']:.1f}s"
     ]
     
     for i, text in enumerate(texts):
@@ -206,17 +183,12 @@ def main():
     API_CALL_INTERVAL = args.api_interval  # seconds between API calls
 
     # Initialize Roboflow client
-    CLIENT = InferenceHTTPClient(
-        api_url="https://serverless.roboflow.com",
-        api_key="nfRaKWeyDCMxK2jw6k5a"
-    )
+    rf = Roboflow(api_key="nfRaKWeyDCMxK2jw6k5a")
     
-    # Define custom configuration for confidence and other parameters
-    custom_config = InferenceConfiguration(
-        confidence_threshold=args.conf,  # Use confidence from command line args
-        iou_threshold=0.5,               # IoU threshold for non-maximum suppression
-        max_detections=100               # Maximum number of detections
-    )
+    # Get the project and model
+    project_name, version = args.model_id.split('/')
+    project = rf.workspace().project(project_name)
+    model = project.version(version).model
     
     sct = mss()
     monitor = sct.monitors[args.monitor]
@@ -246,91 +218,88 @@ def main():
     logger.info(f"Capture region: {capture_region}")
     delay = 1.0 / args.fps
     
-    # Initialize async inference manager with throttling
-    with CLIENT.use_configuration(custom_config):
-        inference_manager = AsyncInferenceManager(
-            CLIENT, 
-            args.model_id, 
-            api_interval=API_CALL_INTERVAL,
-            max_queue_size=2
-        )
-        inference_manager.start_worker()
-        
-        # FPS tracking
-        fps_counter = 0
-        fps_start_time = time.time()
-        fps_actual = 0.0
-        
-        logger.info(f"Started live inference with {API_CALL_INTERVAL}s API interval")
-        logger.info("Press ESC to stop")
-        
-        try:
-            while True:
-                t0 = time.time()
-                frame = np.array(sct.grab(capture_region))[:, :, :3]  # BGRA -> BGR slice
-                
-                # Submit frame for async inference (with throttling)
-                frame_submitted = inference_manager.submit_frame(frame)
-                
-                # Get latest results (if any)
-                results = inference_manager.get_latest_results()
-                
-                # Draw detections from latest results
-                if results:
-                    if results['error']:
-                        # Show API error
-                        annotated = frame.copy()
-                        cv2.putText(annotated, f"API Error: {results['error'][:50]}", 
-                                  (10, 175), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
-                    else:
-                        # Draw detections
-                        annotated = draw_detections(frame, results['predictions'])
-                        # Show detection count
-                        detection_count = len(results['predictions'])
-                        cv2.putText(annotated, f"Detections: {detection_count}", 
-                                  (10, 175), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-                else:
-                    # No results yet
+    # Initialize async inference manager with aggressive queue clearing
+    inference_manager = AsyncInferenceManager(
+        model, 
+        api_interval=API_CALL_INTERVAL
+    )
+    inference_manager.start_worker()
+    
+    # FPS tracking
+    fps_counter = 0
+    fps_start_time = time.time()
+    fps_actual = 0.0
+    
+    logger.info(f"Started live inference with {API_CALL_INTERVAL}s API interval")
+    logger.info("Press ESC to stop")
+    
+    try:
+        while True:
+            t0 = time.time()
+            frame = np.array(sct.grab(capture_region))[:, :, :3]  # BGRA -> BGR slice
+            
+            # Submit frame for async inference (with throttling)
+            frame_submitted = inference_manager.submit_frame(frame)
+            
+            # Get latest results (if any)
+            results = inference_manager.get_latest_results()
+            
+            # Draw detections from latest results
+            if results:
+                if results['error']:
+                    # Show API error
                     annotated = frame.copy()
-                    cv2.putText(annotated, "Waiting for first API response...", 
-                              (10, 175), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+                    cv2.putText(annotated, f"API Error: {results['error'][:50]}", 
+                              (10, 175), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+                else:
+                    # Draw detections
+                    annotated = draw_detections(frame, results['predictions'])
+                    # Show detection count
+                    detection_count = len(results['predictions'])
+                    cv2.putText(annotated, f"Detections: {detection_count}", 
+                              (10, 175), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            else:
+                # No results yet
+                annotated = frame.copy()
+                cv2.putText(annotated, "Waiting for first API response...", 
+                          (10, 175), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+            
+            # Show frame submission status
+            status_color = (0, 255, 0) if frame_submitted else (128, 128, 128)
+            status_text = "Frame sent to API" if frame_submitted else "Frame throttled"
+            cv2.putText(annotated, status_text, (10, 195), cv2.FONT_HERSHEY_SIMPLEX, 0.5, status_color, 1)
+            
+            # Calculate and display FPS
+            fps_counter += 1
+            if fps_counter >= 30:  # Update FPS every 30 frames
+                elapsed_fps = time.time() - fps_start_time
+                fps_actual = fps_counter / elapsed_fps
+                fps_counter = 0
+                fps_start_time = time.time()
+            
+            # Draw statistics overlay
+            stats = inference_manager.get_stats()
+            draw_stats_overlay(annotated, stats, fps_actual)
+            
+            # Resize for display
+            h, w = annotated.shape[:2]
+            new_w = args.width
+            new_h = int(h * new_w / w)
+            annotated = cv2.resize(annotated, (new_w, new_h))
+            
+            cv2.imshow("Clash Live", annotated)
+            if cv2.waitKey(1) & 0xFF == 27:  # ESC
+                break
                 
-                # Show frame submission status
-                status_color = (0, 255, 0) if frame_submitted else (128, 128, 128)
-                status_text = "Frame sent to API" if frame_submitted else "Frame throttled"
-                cv2.putText(annotated, status_text, (10, 195), cv2.FONT_HERSHEY_SIMPLEX, 0.5, status_color, 1)
+            # Maintain target FPS
+            elapsed = time.time() - t0
+            sleep_for = delay - elapsed
+            if sleep_for > 0:
+                time.sleep(sleep_for)
                 
-                # Calculate and display FPS
-                fps_counter += 1
-                if fps_counter >= 30:  # Update FPS every 30 frames
-                    elapsed_fps = time.time() - fps_start_time
-                    fps_actual = fps_counter / elapsed_fps
-                    fps_counter = 0
-                    fps_start_time = time.time()
-                
-                # Draw statistics overlay
-                stats = inference_manager.get_stats()
-                draw_stats_overlay(annotated, stats, fps_actual)
-                
-                # Resize for display
-                h, w = annotated.shape[:2]
-                new_w = args.width
-                new_h = int(h * new_w / w)
-                annotated = cv2.resize(annotated, (new_w, new_h))
-                
-                cv2.imshow("Clash Live", annotated)
-                if cv2.waitKey(1) & 0xFF == 27:  # ESC
-                    break
-                    
-                # Maintain target FPS
-                elapsed = time.time() - t0
-                sleep_for = delay - elapsed
-                if sleep_for > 0:
-                    time.sleep(sleep_for)
-                    
-        finally:
-            # Cleanup
-            inference_manager.stop_worker()
+    finally:
+        # Cleanup
+        inference_manager.stop_worker()
             
     cv2.destroyAllWindows()
     
@@ -338,11 +307,6 @@ def main():
     final_stats = inference_manager.get_stats()
     logger.info(f"Final Statistics:")
     logger.info(f"  API call interval: {final_stats['api_interval']:.1f}s")
-    logger.info(f"  Frames sent to API: {final_stats['frames_sent']}")
-    logger.info(f"  Frames skipped (throttled): {final_stats['frames_skipped']}")
-    logger.info(f"  Frames processed: {final_stats['frames_processed']}")
-    logger.info(f"  API errors: {final_stats['api_errors']}")
-    logger.info(f"  Success rate: {final_stats['success_rate']:.1%}")
     
     return 0
 
