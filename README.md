@@ -1,4 +1,4 @@
-# Clash Vision - Real-time Clash Royale Analysis
+# Clash Vision - Real-time Clash Royale Model Detection + Analysis
 
 AI-powered real-time analysis system for Clash Royale gameplay using computer vision and machine learning.
 
@@ -15,30 +15,42 @@ AI-powered real-time analysis system for Clash Royale gameplay using computer vi
 
 ### Prerequisites
 - Python 3.8+
-- Roboflow API key
-- QuickTime Player (for iPhone screen capture)
+- Roboflow API key 
+- Iphone Screen Capture Software
+- pip
 
 ### Installation
 ```bash
 cd clash-vision
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+```
+### Activate venv
+```bash
+cd clash-vision
+python -m venv .venv
+source .venv/bin/activate # On Windows: .venv\Scripts\activate
 ```
 
 ### Setup Screen Capture
 ```bash
-# 1. Connect iPhone and open QuickTime Player
+# 0. Make sure venv activated
+# 1. Connect iPhone and open QuickTime Player (or OBS)
 # 2. File > New Movie Recording > Select iPhone
 # 3. Run region selector to define capture area
+cd \Clash-Quant\clash-vision\src
 python -m clash_vision.inference.screen_preview --monitor 1
-# Press 'r' to select iPhone screen area, saves to capture_region.json
+# Press 'r' to select iPhone screen area
+# Drag out box to identify screen area
+# Press 's' then 'esc' to save
+# Press 'Ctrl+C' to exit 
 ```
 
 ### Run Live Analysis
 ```bash
-# Basic inference with game state tracking
-python -m clash_vision.inference.live_inference --conf 0.05 --api_interval 1.0
+# Basic game state tracking and model detection
+# 0. Make sure venv activated
+cd Clash-Quant\clash-vision.venv\Scripts\activate
+python -m clash_vision.inference.live_inference --conf 0.05 --api_interval 0.5 --fps 30
 
 # With web server for frontend access
 python -m clash_vision.inference.live_inference --conf 0.05 --server-port 8080
@@ -47,7 +59,7 @@ python -m clash_vision.inference.live_inference --conf 0.05 --server-port 8080
 python -m clash_vision.inference.live_inference --conf 0.03 --api_interval 0.5 --fps 30
 ```
 
-### Frontend Setup
+### Frontend Setup - (In Trial)
 ```bash
 cd ../frontend
 npm install
@@ -87,47 +99,6 @@ npm run dev  # Development server on http://localhost:3000
 - **R**: Reset game state
 - **S**: Save current frame (in screen preview mode)
 
-## File Structure
-
-```
-clash-vision/
-├── src/clash_vision/
-│   ├── inference/
-│   │   ├── live_inference.py     # Main application
-│   │   ├── screen_preview.py     # Region selection tool
-│   │   └── predict_image.py      # Single image inference
-│   ├── training/
-│   │   └── train.py              # Model training utilities
-│   ├── dataset/
-│   │   ├── verify_dataset.py     # Dataset validation
-│   │   └── resize_images.py      # Image preprocessing
-│   └── utils/
-│       └── logger.py             # Logging utilities
-├── gamestate.py                  # Game state management
-└── requirements.txt              # Python dependencies
-```
-
-## Development
-
-### Model Training
-```bash
-python -m clash_vision.training.train --data dataset/data.yaml --epochs 100
-```
-
-### Dataset Validation
-```bash
-python -m clash_vision.dataset.verify_dataset --dataset-root dataset/
-```
-
-### Testing
-```bash
-# Single image inference
-python -m clash_vision.inference.predict_image --weights models/best.pt --source test_image.jpg
-
-# Batch processing
-python -m clash_vision.inference.predict_image --weights models/best.pt --source test_folder/
-```
-
 ## Troubleshooting
 
 **No detections**: Check confidence threshold and API key
@@ -135,13 +106,11 @@ python -m clash_vision.inference.predict_image --weights models/best.pt --source
 **Capture issues**: Ensure QuickTime window is visible and region is selected
 **Web server errors**: Check port availability and CORS settings
 
-## Performance Optimization
+## Extra Notes
 
 - Use `--api_interval 0.5` for competitive analysis
 - Set `--nms-threshold 0.2` for stricter duplicate removal
 - Enable `--debug` mode to analyze detection quality
 - Monitor NMS filtering statistics in overlay
-
-## License
-
-Internal use only
+- Detection Model only trained on 8 cards so far
+- Detection Model updates very slowly as of right now
