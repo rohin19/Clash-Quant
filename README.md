@@ -1,12 +1,12 @@
-# Clash Vision - Real-time Clash Royale Model Detection + Analysis
+# Clash Quant - Live Clash Royale Model Detection + Analysis
 
-AI-powered real-time analysis system for Clash Royale gameplay using computer vision and machine learning.
+Real-time analysis system for Clash Royale gameplay using computer vision and machine learning.
 
 ## Features
 
 - **Live Card Detection**: Real-time identification of cards using Roboflow API
-- **Game State Tracking**: Opponent elixir monitoring and deck discovery
-- **AI Prediction Engine**: Machine learning-based next card prediction
+- **Game State Tracking**: Opponent elixir count and deck monitoring
+- **Next Card Prediction**: Opponent next card available prediction
 - **Web Interface**: React frontend with live data visualization
 - **Non-Maximum Suppression**: Prevents duplicate/overlapping detections
 - **Match Analytics**: Historical data and performance statistics
