@@ -54,10 +54,10 @@ def main():
     # Apply preset modes
     if args.fast:
         cmd.extend(["--conf", "0.05", "--api_interval", "0.5", "--fps", "30"])
-        print("🚀 Fast Mode: 0.5s API calls, 30fps, 0.05 confidence")
+        print("Fast Mode: 0.5s API calls, 30fps, 0.05 confidence")
     elif args.ultra_fast:
         cmd.extend(["--conf", "0.03", "--api_interval", "0.2", "--fps", "60"])
-        print("⚡ Ultra Fast Mode: 0.2s API calls, 60fps, 0.03 confidence")
+        print(" Ultra Fast Mode: 0.2s API calls, 60fps, 0.03 confidence")
     else:
         # Use individual parameters
         cmd.extend([
@@ -75,16 +75,16 @@ def main():
     
     if args.no_gamestate:
         cmd.append("--no-gamestate")
-        print("🚫 Game state tracking disabled")
+        print(" Game state tracking disabled")
     else:
-        print("🎯 Game state tracking enabled (≥0.5 confidence triggers state updates)")
+        print(" Game state tracking enabled (≥0.5 confidence triggers state updates)")
     
-    print(f"\n🎮 Starting Clash Quant Live Inference...")
+    print(f"\n Starting Clash Quant Live Inference...")
     print(f"   Confidence: {args.conf}")
     print(f"   API Interval: {args.api_interval}s")
     print(f"   Display FPS: {args.fps}")
-    print(f"\n⌨️  Controls: ESC=Exit, R=Reset Game State")
-    print(f"🚀 Running command: {' '.join(cmd)}\n")
+    print(f"\n  Controls: ESC=Exit, R=Reset Game State")
+    print(f"" Running command: {' '.join(cmd)}\n")
     
     # Change to src directory
     src_dir = Path(__file__).parent / "src"
@@ -93,10 +93,10 @@ def main():
         # Run the command
         subprocess.run(cmd, cwd=src_dir, check=True)
     except subprocess.CalledProcessError as e:
-        print(f"❌ Error running live inference: {e}")
+        print(f" Error running live inference: {e}")
         return 1
     except KeyboardInterrupt:
-        print(f"\n👋 Interrupted by user")
+        print(f"\n Interrupted by user")
         return 0
     
     return 0
