@@ -7,7 +7,7 @@ from ..utils import logger
 
 def parse_args():
     p = argparse.ArgumentParser(description="Train YOLOv8 model for Clash Royale MVP")
-    p.add_argument("--data", type=str, default="dataset/data.yaml", help="Path to data.yaml")
+    p.add_argument("--data", type=str, default="clash-vision\src\clash_vision\dataset\data.yaml", help="Path to data.yaml")
     p.add_argument("--model", type=str, default="yolov8n.pt", help="Base model weights (e.g., yolov8n.pt)")
     p.add_argument("--epochs", type=int, default=30)
     p.add_argument("--img", type=int, default=640, help="Image size")
