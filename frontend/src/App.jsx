@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { api } from "./api";
 import ElixirImg from "./assets/elixir.png";
 import KnightImg from "./assets/knight.png";
 import ValkyrieImg from "./assets/valkyrie.png";
@@ -67,56 +68,30 @@ function Prediction({ prediction }) {
 	);
 }
 
-// Sample data simulating backend response
-/*
-const sampleGameState = {
-	visible_cards: ["Knight", "Valkyrie", "HogRider"],
-	elixir_opponent: 6,
-	next_prediction: "MiniPekka",
-	deck: [
-		"Knight",
-		"Valkyrie",
-		"HogRider",
-		"MiniPekka",
-		"DartGoblin",
-		"Bomber",
-		"BabyDragon",
-	],
-	current_hand: ["Knight", "Valkyrie", "HogRider", "MiniPekka"],
-};
-*/
-
-// Fetch game state from backend API (using gamestate/live_inference output)
-// Assumes backend endpoint returns JSON in the format:
-// {
-//   "visible_cards": [...],
-//   "elixir_opponent": ...,
-//   "next_prediction": ...,
-//   "deck": [...],
-//   "current_hand": [...]
-// }
-const API_URL = "http://localhost:5000/api/game_state"; // Change to your backend endpoint
-
 function App() {
-	const [gameState, setGameState] = useState(null);
+	const [gameState, setGameState] = useState({
+		visible_cards: [],
+		elixir_opponent: 0,
+		next_prediction: "",
+		deck: [],
+		current_hand: [],
+	});
 
 	useEffect(() => {
+		let mounted = true;
 		async function fetchState() {
-			try {
-				const res = await fetch(API_URL);
-				const data = await res.json();
-				setGameState(data);
-			} catch (err) {
-				// handle error, optionally set sampleGameState
-			}
+			const data = await api.getGameState();
+			if (mounted) setGameState(data);
 		}
 		fetchState();
-		const interval = setInterval(fetchState, 1000); // Poll every second
-		return () => clearInterval(interval);
+		const interval = setInterval(fetchState, 1000);
+		return () => {
+			mounted = false;
+			clearInterval(interval);
+		};
 	}, []);
 
-	// Use gameState if available, else fallback to sampleGameState
-	const state = gameState || sampleGameState;
+	const state = gameState;
 
 	return (
 		<div className="App">
