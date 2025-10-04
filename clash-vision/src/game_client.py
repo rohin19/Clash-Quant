@@ -7,47 +7,66 @@ import json
 from datetime import datetime
 
 class GameStateClient:
-    """Client to send game state updates to the Flask server."""
-    
-    def __init__(self, server_url="http://localhost:5000"):
+    """Client for posting detection batches to the game server.
+
+    Accepts mixed detection formats and converts to server schema.
+    """
+
+    def __init__(self, server_url: str = "http://localhost:5000"):
         self.server_url = server_url.rstrip('/')
-        
-    def update_gamestate(self, detections, fps=0.0, api_status="active"):
-        """Send detection results to the server."""
+
+    def _normalize(self, detections):
+        out = []
+        for d in detections or []:
+            if not isinstance(d, dict):
+                continue
+            name = d.get('card') or d.get('class') or d.get('name')
+            if not name:
+                continue
+            conf = d.get('confidence', 0.0)
+            try:
+                conf = float(conf)
+            except (TypeError, ValueError):
+                continue
+            if 'bbox' in d and isinstance(d['bbox'], (list, tuple)) and len(d['bbox']) == 4:
+                bbox = d['bbox']
+            elif all(k in d for k in ('x','y','width','height')):
+                try:
+                    x = float(d['x']); y = float(d['y'])
+                    w = float(d['width']); h = float(d['height'])
+                except (TypeError, ValueError):
+                    continue
+                bbox = [x - w/2, y - h/2, x + w/2, y + h/2]
+            else:
+                continue
+            out.append({'card': name, 'bbox': bbox, 'confidence': conf})
+        return out
+
+    def update_gamestate(self, detections, timestamp: float | None = None):
         try:
+            norm = self._normalize(detections)
             payload = {
-                "detections": detections,
-                "fps": fps,
-                "api_status": api_status,
-                "timestamp": datetime.now().isoformat()
+                'detections': norm,
+                'timestamp': timestamp
             }
-            
             response = requests.post(
                 f"{self.server_url}/api/gamestate/update",
                 json=payload,
-                timeout=1.0  # Quick timeout to avoid blocking inference
+                timeout=1.0
             )
-            
-            if response.status_code == 200:
-                return True
-            else:
-                print(f"Failed to update server: {response.status_code}")
-                return False
-                
+            return response.ok
         except requests.exceptions.RequestException as e:
             print(f"Server update failed: {e}")
             return False
-            
+
     def get_gamestate(self):
-        """Get current game state from server."""
         try:
             response = requests.get(f"{self.server_url}/api/gamestate", timeout=1.0)
-            if response.status_code == 200:
+            if response.ok:
                 return response.json()
-            else:
-                return None
         except requests.exceptions.RequestException:
             return None
+        return None
 
 if __name__ == "__main__":
     # Example usage

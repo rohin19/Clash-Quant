@@ -1,67 +1,96 @@
-from flask import Flask, jsonify, send_from_directory, send_file
+from flask import Flask, jsonify, send_from_directory, request, Response
 from flask_cors import CORS
-import json
 import time
 from datetime import datetime
 from gamestate import GameState
 import os
+import threading
+import json
 
 # Serve Vite build from Flask
 app = Flask(__name__, static_folder='../../frontend/dist', static_url_path='')
 CORS(app)  # Enable CORS for frontend communication
 
-# Global game state - just use your existing class directly
 game_state = GameState()
+_lock = threading.Lock()
+
+# Background tick (elixir/time progression even when no detections posted)
+_tick_event = threading.Event()
+
+def _tick_loop():  # pragma: no cover
+    while not _tick_event.is_set():
+        with _lock:
+            # Empty list still advances time logic
+            game_state.ingest_detections([])
+        _tick_event.wait(0.25)  # 4 Hz
+
+_tick_thread = threading.Thread(target=_tick_loop, daemon=True)
+_tick_thread.start()
+
+def _normalize_incoming(detections):
+    """Accept mixed detection formats (roboflow center-style or already normalized).
+    Returns list formatted for GameState.ingest_detections.
+    Supported shapes per item:
+      {"card"|"class": name, "bbox": [x1,y1,x2,y2], "confidence": float}
+      {"class": name, "x": cx, "y": cy, "width": w, "height": h, "confidence": f}
+    """
+    normalized = []
+    for d in detections or []:
+        if not isinstance(d, dict):
+            continue
+        name = d.get('card') or d.get('class') or d.get('name')
+        if not name:
+            continue
+        conf = d.get('confidence')
+        try:
+            conf = float(conf)
+        except (TypeError, ValueError):
+            continue
+        # Already bbox form
+        if 'bbox' in d and isinstance(d['bbox'], (list, tuple)) and len(d['bbox']) == 4:
+            bbox = d['bbox']
+        # center format
+        elif all(k in d for k in ('x','y','width','height')):
+            try:
+                x = float(d['x']); y = float(d['y'])
+                w = float(d['width']); h = float(d['height'])
+            except (TypeError, ValueError):
+                continue
+            x1 = x - w/2; y1 = y - h/2; x2 = x + w/2; y2 = y + h/2
+            bbox = [x1, y1, x2, y2]
+        else:
+            continue
+        normalized.append({
+            'card': name,
+            'bbox': bbox,
+            'confidence': conf
+        })
+    return normalized
 
 @app.route('/api/gamestate', methods=['GET'])
 def get_gamestate():
-    """
-    GET /api/gamestate
-    Returns the current game state with detection results.
-    """
-    try:
+    with _lock:
         state = game_state.get_state()
-        return jsonify({
-            "success": True,
-            "data": state
-        }), 200
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+    return jsonify({"success": True, "data": state})
 
 @app.route('/api/gamestate/detections', methods=['GET'])
 def get_detections():
-    """
-    GET /api/gamestate/detections  
-    Returns only the current detections array.
-    """
-    try:
+    with _lock:
         state = game_state.get_state()
-        return jsonify({
-            "success": True,
-            "detections": state["visible_cards"],
-            "count": len(state["visible_cards"]),
-            "timestamp": datetime.now().isoformat()
-        }), 200
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+    return jsonify({
+        "success": True,
+        "detections": state["visible_cards"],
+        "count": len(state["visible_cards"]),
+        "timestamp": datetime.utcnow().isoformat()
+    })
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    """
-    GET /api/health
-    Health check endpoint.
-    """
     return jsonify({
         "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.utcnow().isoformat(),
         "uptime": time.time()
-    }), 200
+    })
 
 # Serve the React app
 @app.route('/')
@@ -80,69 +109,35 @@ def serve_static_files(path):
 
 @app.route('/api/gamestate/update', methods=['POST'])
 def update_gamestate():
-    """
-    POST /api/gamestate/update
-    Update the game state (for inference script to call).
-    Expected format: {
-        "detections": [
-            {"card": "Giant", "bbox": [x1, y1, x2, y2], "confidence": 0.92}
-        ]
-    }
-    """
-    try:
-        from flask import request
-        data = request.get_json()
-        
-        detections = data.get('detections', [])
-        
-        # Update game state directly
-        game_state.update(detections)
-        
-        return jsonify({
-            "success": True,
-            "message": "Game state updated",
-            "cards_detected": len(detections),
-            "elixir": game_state.elixir_opponent
-        }), 200
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+    data = request.get_json(force=True, silent=True) or {}
+    raw_detections = data.get('detections', [])
+    timestamp = data.get('timestamp')  # optional float
+    norm = _normalize_incoming(raw_detections)
+    with _lock:
+        game_state.ingest_detections(norm, frame_ts=timestamp)
+        state = game_state.get_state()
+    return jsonify({
+        "success": True,
+        "ingested": len(norm),
+        "provided": len(raw_detections),
+        "deck": state['deck'],
+        "elixir": state['elixir_opponent']
+    })
 
 @app.route('/api/gamestate/reset', methods=['POST'])
 def reset_gamestate():
-    """
-    POST /api/gamestate/reset
-    Reset the game state for a new match.
-    """
-    try:
+    with _lock:
         game_state.reset()
-        return jsonify({
-            "success": True,
-            "message": "Game state reset for new match"
-        }), 200
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        state = game_state.get_state()
+    return jsonify({"success": True, "state": state})
 
 if __name__ == '__main__':
-    print("Starting Clash Quant Full Stack Server...")
-    print("API Endpoints:")
-    print("   GET  /api/gamestate           - Get full game state (elixir, deck, cards)")
-    print("   GET  /api/gamestate/detections - Get only detections")
-    print("   GET  /api/health              - Health check")
-    print("   POST /api/gamestate/update    - Update game state with detections")
-    print("   POST /api/gamestate/reset     - Reset for new match")
-    print("Frontend & API on http://localhost:5000")
-    print("Using GameState class with elixir tracking and deck discovery!")
-    print("Serving React app from /frontend/dist")
-    
-    app.run(
-        host='0.0.0.0',
-        port=5000,
-        debug=True,
-        threaded=True
-    )
+    print("Starting Clash Quant Game Server (Integrated GameState)")
+    print("Endpoints:")
+    print("  GET  /api/gamestate")
+    print("  GET  /api/gamestate/detections")
+    print("  POST /api/gamestate/update")
+    print("  POST /api/gamestate/reset")
+    print("  GET  /api/health")
+    print("Background tick active (0.25s)")
+    app.run(host='0.0.0.0', port=5000, debug=True, threaded=True)
